@@ -1,0 +1,14 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.env
+.pytest_cache/
+.DS_Store
+
+data/raw/tradeweb/*.csv
+data/raw/dmo/*.xml
+data/processed/*.parquet
+!data/raw/tradeweb/.gitkeep
+!data/raw/dmo/.gitkeep
+!data/processed/.gitkeep
