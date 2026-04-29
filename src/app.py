@@ -14,12 +14,7 @@ import plotly.graph_objects as go
 import streamlit as st
 from statsmodels.nonparametric.smoothers_lowess import lowess
 
-from data.pipeline import (
-    DEFAULT_PROCESSED_FILE,
-    DEFAULT_TAX_BANDS,
-    build_latest_snapshot,
-    load_latest_snapshot,
-)
+from data.pipeline import DEFAULT_PROCESSED_FILE, DEFAULT_TAX_BANDS, load_latest_snapshot
 
 st.set_page_config(
     page_title="UK Gilt Screener",
@@ -38,19 +33,6 @@ TAX_BAND_LABELS = {
 @st.cache_data(show_spinner=False)
 def _load_snapshot(path: str) -> pd.DataFrame:
     return load_latest_snapshot(path)
-
-
-def _ensure_snapshot(use_dividenddata: bool = True) -> pd.DataFrame:
-    if not DEFAULT_PROCESSED_FILE.exists():
-        with st.spinner("Building first snapshot..."):
-            build_latest_snapshot(use_dividenddata=use_dividenddata)
-    return _load_snapshot(str(DEFAULT_PROCESSED_FILE))
-
-
-def _rebuild_snapshot(use_dividenddata: bool = True) -> None:
-    _load_snapshot.clear()
-    with st.spinner("Rebuilding snapshot..."):
-        build_latest_snapshot(force_refresh_dmo=True, use_dividenddata=use_dividenddata)
 
 
 def _fit_curve(x: np.ndarray, y: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
@@ -90,7 +72,7 @@ def _render_yield_curve(
         ],
     )
     # small dots for all gilts, big dots for highlighted ones
-    sizes = base["is_highlighted"].map({True: 14, False: 8})
+    sizes = base["is_highlighted"].map({True: 20, False: 8})
     opacities = base["is_highlighted"].map({True: 1.0, False: 0.55})
     fig.update_traces(
         marker=dict(size=sizes.tolist(), opacity=opacities.tolist(), line=dict(width=0)),
@@ -182,25 +164,26 @@ def main() -> None:
         "rate."
     )
 
-    with st.sidebar:
-        st.header("Data")
-        use_dividenddata = st.checkbox(
-            "Use DividendData.co.uk", 
-            value=True,
-            help="If checked, scrapes live prices from dividenddata.co.uk. If unchecked, uses the latest Tradeweb CSV in data/raw/tradeweb/."
-        )
-        
-        if st.button("Refresh snapshot", help="Re-fetch DMO + rebuild from chosen data source"):
-            _rebuild_snapshot(use_dividenddata)
-            st.success("Snapshot rebuilt.")
-
-    df = _ensure_snapshot(use_dividenddata)
-
-    if df.empty:
-        st.warning(
-            "Snapshot is empty. Check your data source and hit **Refresh snapshot**."
+    if not DEFAULT_PROCESSED_FILE.exists():
+        st.error(
+            "No snapshot file found at `data/processed/gilts_latest.parquet`. "
+            "This app only reads data baked into the repo (updated by the scheduled "
+            "GitHub Action). Commit that file or run the pipeline locally, then redeploy."
         )
         return
+
+    df = _load_snapshot(str(DEFAULT_PROCESSED_FILE))
+
+    if df.empty:
+        st.warning("Snapshot file exists but has no rows. Re-run the data pipeline.")
+        return
+
+    _sd = df["snapshot_date"].dropna()
+    if not _sd.empty:
+        st.caption(
+            f"Data last updated: **{_sd.iloc[0]}** "
+            "(from `gilts_latest.parquet` in the repo)."
+        )
 
     with st.sidebar:
         st.header("Filters")
