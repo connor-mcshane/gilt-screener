@@ -1,0 +1,60 @@
+name: Update Gilt Data
+
+on:
+  schedule:
+    # Run every weekday (Monday-Friday) at 18:00 UTC
+    # Tradeweb publishes the previous day's close at noon, so 6 PM is safe.
+    - cron: '0 18 * * 1-5'
+  workflow_dispatch: # Allow manual triggering from the GitHub UI
+
+jobs:
+  update-data:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Need full history if we want to push changes back
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Rebuild Parquet Snapshot
+        run: |
+          # This will fetch the latest DMO XML feed and scrape DividendData.co.uk
+          python -c "
+          import sys; sys.path.insert(0, 'src')
+          from data.pipeline import build_latest_snapshot
+          build_latest_snapshot(force_refresh_dmo=True, use_dividenddata=True)
+          print('Snapshot rebuilt successfully.')
+          "
+
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          
+          # Add the new raw data and the processed parquet file (using -f because they are in .gitignore)
+          git add -f data/raw/tradeweb/*.csv || true
+          git add -f data/raw/dividenddata/*.html || true
+          git add -f data/processed/gilts_latest.parquet
+          
+          # Only commit if there are actual changes
+          if git diff --staged --quiet; then
+            echo "No new data to commit."
+          else
+            git commit -m "chore(data): automated daily gilt data update"
+            git push
+          fi
